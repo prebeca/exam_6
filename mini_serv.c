@@ -10,25 +10,22 @@
 #include <netinet/in.h>
 #include <stdbool.h>
 
-typedef char* string;
-
 int server;
 int g_id = 0;
 
 typedef struct client_s
 {
 	int id;
-	string buf;
+	char *buf;
 }				client_t;
 
 client_t g_clients[FD_SETSIZE];
 
 fd_set readfds, writefds, fds;
 
-char sysbuf[1024];
-char buf[10];
+char g_buf[1024];
 
-int extract_message(string *buf, string *msg)
+int extract_message(char **buf, char **msg)
 {
 	char	*newbuf;
 	int	i;
@@ -55,7 +52,7 @@ int extract_message(string *buf, string *msg)
 	return (0);
 }
 
-string str_join(string buf, string add)
+char *str_join(char *buf, char *add)
 {
 	char	*newbuf;
 	int		len;
@@ -75,7 +72,7 @@ string str_join(string buf, string add)
 	return (newbuf);
 }
 
-int putError(string msg)
+int putError(char *msg)
 {
 	write(STDERR_FILENO, msg, strlen(msg));
 	return (1);
@@ -93,14 +90,14 @@ void fatalError()
 	exit (putError("Fatal error\n"));
 }
 
-void sendAll(int fd, string msg)
+void sendAll(int fd, char *msg)
 {
 	for (int i = 0; i < FD_SETSIZE; ++i)
 		if (FD_ISSET(i, &writefds) && fd != i)
 			send(i, msg, strlen(msg), 0);
 }
 
-int main(int argc, string argv[]) {
+int main(int argc, char *argv[]) {
 	int connfd;
 	socklen_t len;
 	struct sockaddr_in servaddr, cli; 
@@ -108,7 +105,6 @@ int main(int argc, string argv[]) {
 	if (argc < 2)
 		return(putError("Wrong number of arguments\n"));
 
-	bzero(g_clients, FD_SETSIZE * sizeof(client_t));
 	FD_ZERO(&fds);
 
 	// socket create and verification 
@@ -148,42 +144,33 @@ int main(int argc, string argv[]) {
 					FD_SET(connfd, &fds);
 					g_clients[connfd].id = g_id++;
 					g_clients[connfd].buf = 0;
-					bzero(sysbuf, 1024);
-					sprintf(sysbuf, "server: client %d just arrived\n", g_clients[connfd].id);
-					sendAll(connfd, sysbuf);
+					sprintf(g_buf, "server: client %d just arrived\n", g_clients[connfd].id);
+					sendAll(connfd, g_buf);
 				}
 				else
 				{
-					bzero(buf, 10);
-					int ret = recv(fd, buf, 10, 0);
+					int ret = recv(fd, g_buf, 1024, 0);
+					g_buf[ret] = '\0';
 
 					if (ret <= 0)
 					{
 						free(g_clients[fd].buf);
 						FD_CLR(fd, &fds);
 						close(fd);
-						bzero(sysbuf, 1024);
-						sprintf(sysbuf, "server: client %d just left\n", g_clients[fd].id);
-						sendAll(fd, sysbuf);
+						sprintf(g_buf, "server: client %d just left\n", g_clients[fd].id);
+						sendAll(fd, g_buf);
 					}
 					else
 					{
-						string tmp = str_join(g_clients[fd].buf, buf);
-						if (tmp == 0)
-							fatalError();
-						g_clients[fd].buf = tmp;
-						while ((ret = extract_message(&g_clients[fd].buf, &tmp)))
+						g_clients[fd].buf = str_join(g_clients[fd].buf, g_buf);
+						char *msg;
+						while ((ret = extract_message(&g_clients[fd].buf, &msg)))
 						{
 							if (ret == -1)
 								fatalError();
-							string msg = malloc((strlen(tmp) + 42) * sizeof(char));
-							if (msg == NULL)
-							{
-								free(tmp);
-								fatalError();
-							}
-							sprintf(msg, "client %d: %s", g_clients[fd].id, tmp);
-							free(tmp);
+								
+							sprintf(g_buf, "client %d: ", g_clients[fd].id);
+							sendAll(fd, g_buf);
 							sendAll(fd, msg);
 							free(msg);
 						}
